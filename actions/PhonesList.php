@@ -14,7 +14,7 @@ class PhonesList extends CController {
     protected function checkInput(): bool {
         $fields = [
             'success' => 'string',
-            'error'   => 'string',
+            'error'   => 'string'
         ];
         return $this->validateInput($fields);
     }
@@ -26,17 +26,13 @@ class PhonesList extends CController {
     protected function doAction(): void {
         $users = [];
         $result = DBselect(
-            'SELECT DISTINCT u.userid, u.name, u.surname, u.username,' .
-            ' COALESCE(p.phone, \'\') AS phone' .
-            ' FROM users u' .
-            ' LEFT JOIN module_plantao_phones p ON p.userid = u.userid' .
-            ' WHERE EXISTS (' .
-            '  SELECT 1 FROM users_groups ug' .
-            '  JOIN usrgrp g ON g.usrgrpid = ug.usrgrpid' .
-            '  WHERE ug.userid = u.userid AND g.name LIKE \'%WISEDB%\'' .
-            ' )' .
+            'SELECT DISTINCT u.userid, u.name, u.surname, u.username, ' .
+            ' COALESCE(p.phone, \'\') AS phone ' .
+            ' FROM users u ' .
+            ' LEFT JOIN module_plantao_phones p ON p.userid = u.userid ' .
             ' ORDER BY u.name, u.surname'
         );
+
         while ($row = DBfetch($result)) {
             $users[] = $row;
         }

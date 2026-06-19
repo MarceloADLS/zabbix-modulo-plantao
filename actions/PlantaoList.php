@@ -37,50 +37,45 @@ class PlantaoList extends CController {
         $date_start    = sprintf('%04d-%02d-01', $year, $month);
         $date_end      = sprintf('%04d-%02d-%02d', $year, $month, $days_in_month);
 
-        $wisedb_filter =
-            ' EXISTS (' .
-            '  SELECT 1 FROM users_groups ug' .
-            '  JOIN usrgrp g ON g.usrgrpid = ug.usrgrpid' .
-            '  WHERE ug.userid = u.userid AND g.name LIKE \'%WISEDB%\'' .
-            ' )';
+        $wisedb_filter = ' 1=1 ';
 
-        $sql =
-            'WITH phone_map AS (' .
-            '  SELECT userid, phone FROM module_plantao_phones' .
-            ')' .
-            ' SELECT' .
-            '  \'sched\' AS row_type,' .
-            '  s.schedule_date::text AS ref_date,' .
-            '  s.scheduleid::text AS ref_id,' .
-            '  u.userid::text AS userid,' .
-            '  u.name, u.surname, u.username,' .
-            '  COALESCE(pm.phone, \'\') AS phone,' .
-            '  COALESCE(s.userid_reserva::text, \'\') AS userid_reserva,' .
-            '  COALESCE(ur.name, \'\') AS reserva_name,' .
-            '  COALESCE(ur.surname, \'\') AS reserva_surname,' .
-            '  COALESCE(pr.phone, \'\') AS reserva_phone' .
-            ' FROM module_plantao_schedule s' .
-            ' JOIN users u ON u.userid = s.userid' .
-            ' LEFT JOIN phone_map pm ON pm.userid = s.userid' .
-            ' LEFT JOIN users ur ON ur.userid = s.userid_reserva' .
-            ' LEFT JOIN phone_map pr ON pr.userid = s.userid_reserva' .
-            ' WHERE s.schedule_date <= ' . zbx_dbstr($date_end) .
-            '   AND (s.schedule_date + INTERVAL \'6 days\')::date >= ' . zbx_dbstr($date_start) .
-            ' UNION ALL' .
-            ' SELECT DISTINCT' .
-            '  \'user\' AS row_type,' .
-            '  \'\' AS ref_date,' .
-            '  \'\' AS ref_id,' .
-            '  u.userid::text AS userid,' .
-            '  u.name, u.surname, u.username,' .
-            '  COALESCE(pm.phone, \'\') AS phone,' .
-            '  \'\' AS userid_reserva,' .
-            '  \'\' AS reserva_name,' .
-            '  \'\' AS reserva_surname,' .
-            '  \'\' AS reserva_phone' .
-            ' FROM users u' .
-            ' LEFT JOIN phone_map pm ON pm.userid = u.userid' .
-            ' WHERE ' . $wisedb_filter;
+	$sql =
+	    'WITH phone_map AS (' .
+	    '    SELECT userid, phone FROM module_plantao_phones' .
+    	    ')' .
+    	    ' SELECT' .
+   	    '   \'sched\' AS row_type,' .
+    	    '   s.schedule_date AS ref_date,' .
+    	    '   s.scheduleid AS ref_id,' .
+    	    '   u.userid AS userid,' .
+     	    '   u.name, u.surname, u.username,' .
+    	    '   COALESCE(pm.phone, \'\') AS phone,' .
+    	    '   COALESCE(s.userid_reserva, \'\') AS userid_reserva,' .
+    	    '   COALESCE(ur.name, \'\') AS reserva_name,' .
+    	    '   COALESCE(ur.surname, \'\') AS reserva_surname,' .
+    	    '   COALESCE(pr.phone, \'\') AS reserva_phone' .
+    	    ' FROM module_plantao_schedule s' .
+    	    ' JOIN users u ON u.userid = s.userid' .
+   	    ' LEFT JOIN phone_map pm ON pm.userid = s.userid' .
+    	    ' LEFT JOIN users ur ON ur.userid = s.userid_reserva' .
+    	    ' LEFT JOIN phone_map pr ON pr.userid = s.userid_reserva' .
+    	    ' WHERE s.schedule_date <= ' . zbx_dbstr($date_end) .
+    	    '   AND (s.schedule_date + INTERVAL 6 DAY) >= ' . zbx_dbstr($date_start) .
+   	    ' UNION ALL' .
+    	    ' SELECT DISTINCT' .
+    	    '   \'user\' AS row_type,' .
+   	    '   \'\' AS ref_date,' .
+    	    '   \'\' AS ref_id,' .
+   	    '   u.userid AS userid,' .
+    	    '   u.name, u.surname, u.username,' .
+    	    '   COALESCE(pm.phone, \'\') AS phone,' .
+    	    '   \'\' AS userid_reserva,' .
+    	    '   \'\' AS reserva_name,' .
+    	    '   \'\' AS reserva_surname,' .
+    	    '   \'\' AS reserva_phone' .
+    	    ' FROM users u' .
+    	    ' LEFT JOIN phone_map pm ON pm.userid = u.userid' .
+    	    ' WHERE ' . $wisedb_filter;
 
         $week_map = [];
         $users    = [];

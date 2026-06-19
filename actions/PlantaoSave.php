@@ -3,8 +3,7 @@
 namespace Modules\Plantao\Actions;
 
 use CController,
-    CControllerResponseRedirect,
-    CUrl,
+    CMessageHelper,
     CWebUser;
 
 class PlantaoSave extends CController {
@@ -15,11 +14,13 @@ class PlantaoSave extends CController {
 
     protected function checkInput(): bool {
         $fields = [
-            'schedule_date'    => 'required|string',
-            'userid'           => 'required|string',
-            'userid_reserva'   => 'string',
-            'month'            => 'int32',
-            'year'             => 'int32',
+            'usrgrpid'      => 'required|db usrgrp.usrgrpid',
+            'userid'        => 'db users.userid',
+            'userid_reserva' => 'db users.userid',
+            'schedule_date' => 'required|string',
+            'save_mode'     => 'string',
+            'month'         => 'string',
+            'year'          => 'string'
         ];
         return $this->validateInput($fields);
     }
@@ -29,117 +30,58 @@ class PlantaoSave extends CController {
     }
 
     protected function doAction(): void {
-        $date          = trim($this->getInput('schedule_date'));
-        $userid        = (int) $this->getInput('userid');
-        $userid_reserva = (int) $this->getInput('userid_reserva', '0');
-        $month         = (int) $this->getInput('month', date('n'));
-        $year          = (int) $this->getInput('year', date('Y'));
-
-        $redirect = (new CUrl('zabbix.php'))
-            ->setArgument('action', 'plantao.list')
-            ->setArgument('month', $month)
-            ->setArgument('year', $year);
-
+        $usrgrpid = $this->getInput('usrgrpid');
+        $base_date = $this->getInput('schedule_date');
+        $uid_main = $this->getInput('userid', '');
+        $uid_res  = $this->getInput('userid_reserva', '');
+        $mode     = $this->getInput('save_mode', 'day');
         
-        $dt = \DateTime::createFromFormat('Y-m-d', $date);
-        if (!$dt || $dt->format('Y-m-d') !== $date) {
-            $this->setResponse(new CControllerResponseRedirect(
-                (clone $redirect)->setArgument('error', 'Data inválida.')
-            ));
-            return;
-        }
+        $current_user = CWebUser::$data['userid'] ?? '0';
+        $now = time();
 
-        
-        $dow = (int) $dt->format('N'); 
-        if ($dow > 1) {
-            $dt->modify('-' . ($dow - 1) . ' days');
-        }
-        $week_monday = $dt->format('Y-m-d');
-        $week_sunday = (clone $dt)->modify('+6 days')->format('Y-m-d');
-
-        
-        $phone_row = DBfetch(DBselect(
-            'SELECT phone FROM module_plantao_phones WHERE userid=' . $userid
-        ));
-
-        if (!$phone_row || empty($phone_row['phone'])) {
-            $this->setResponse(new CControllerResponseRedirect(
-                (clone $redirect)->setArgument('error',
-                    'Técnico não possui telefone cadastrado. Acesse Plantão → Telefones.')
-            ));
-            return;
-        }
-
-        $phone = $phone_row['phone'];
-
-        
-        $phone_reserva = '';
-        if ($userid_reserva > 0) {
-            $reserva_row = DBfetch(DBselect(
-                'SELECT phone FROM module_plantao_phones WHERE userid=' . $userid_reserva
-            ));
-            $phone_reserva = $reserva_row ? $reserva_row['phone'] : '';
-        }
-
-        
-        $existing = DBfetch(DBselect(
-            'SELECT scheduleid FROM module_plantao_schedule' .
-            ' WHERE schedule_date = ' . zbx_dbstr($week_monday)
-        ));
-
-        $reserva_sql = $userid_reserva > 0
-            ? ', userid_reserva = ' . $userid_reserva
-            : ', userid_reserva = NULL';
-
-        if ($existing) {
-            DBexecute(
-                'UPDATE module_plantao_schedule' .
-                ' SET userid = ' . $userid .
-                $reserva_sql .
-                ', created_by = ' . (int) CWebUser::$data['userid'] .
-                ', created_at = ' . time() .
-                ' WHERE scheduleid = ' . (int) $existing['scheduleid']
-            );
+        // Monta a lista de datas que serão afetadas
+        $target_dates = [];
+        if ($mode === 'week') {
+            // Pega a segunda-feira da semana selecionada
+            $dt = new \DateTime($base_date);
+            $dow = (int)$dt->format('N');
+            if ($dow > 1) {
+                $dt->modify('-' . ($dow - 1) . ' days');
+            }
+            // Varre de segunda a domingo
+            for ($i = 0; $i < 7; $i++) {
+                $target_dates[] = $dt->format('Y-m-d');
+                $dt->modify('+1 day');
+            }
         } else {
-            $reserva_val = $userid_reserva > 0 ? $userid_reserva : 'NULL';
-            DBexecute(
-                'INSERT INTO module_plantao_schedule (userid, userid_reserva, schedule_date, created_by, created_at)' .
-                ' VALUES (' . $userid . ', ' . $reserva_val . ', ' . zbx_dbstr($week_monday) .
-                ', ' . (int) CWebUser::$data['userid'] . ', ' . time() . ')'
-            );
+            // Apenas o dia clicado
+            $target_dates[] = $base_date;
         }
 
-        
-        $today = date('Y-m-d');
-        if ($today >= $week_monday && $today <= $week_sunday) {
-            $this->updateMediaTypes($phone, $phone_reserva);
-            $msg = 'Plantão salvo e media types LIGMEE atualizados! (' . $week_monday . ' a ' . $week_sunday . ')';
-        } else {
-            $msg = 'Plantão salvo para a semana ' . $week_monday . ' a ' . $week_sunday . '.';
+        // Executa a gravação para as datas selecionadas
+        foreach ($target_dates as $date) {
+            // Principal
+            if ($uid_main !== '') {
+                DBexecute('REPLACE INTO module_plantao_schedule (usrgrpid, userid, role_type, schedule_date, created_by, created_at) ' .
+                    'VALUES (' . $usrgrpid . ', ' . $uid_main . ', \'principal\', ' . zbx_dbstr($date) . ', ' . $current_user . ', ' . $now . ')');
+            } else {
+                DBexecute('DELETE FROM module_plantao_schedule WHERE usrgrpid = ' . $usrgrpid . ' AND schedule_date = ' . zbx_dbstr($date) . ' AND role_type = \'principal\'');
+            }
+
+            // Reserva
+            if ($uid_res !== '') {
+                DBexecute('REPLACE INTO module_plantao_schedule (usrgrpid, userid, role_type, schedule_date, created_by, created_at) ' .
+                    'VALUES (' . $usrgrpid . ', ' . $uid_res . ', \'reserva\', ' . zbx_dbstr($date) . ', ' . $current_user . ', ' . $now . ')');
+            } else {
+                DBexecute('DELETE FROM module_plantao_schedule WHERE usrgrpid = ' . $usrgrpid . ' AND schedule_date = ' . zbx_dbstr($date) . ' AND role_type = \'reserva\'');
+            }
         }
 
-        $this->setResponse(new CControllerResponseRedirect(
-            (clone $redirect)->setArgument('success', $msg)
-        ));
-    }
+        CMessageHelper::setSuccessTitle($mode === 'week' ? 'Escala da semana inteira gerada.' : 'Plantão diário atualizado.');
 
-    private function updateMediaTypes(string $phone, string $phone_reserva): void {
-        
-        DBexecute(
-            'UPDATE media_type_param' .
-            ' SET value = ' . zbx_dbstr($phone) .
-            ' WHERE mediatypeid IN (102, 105)' .
-            " AND name = 'destination_number'"
-        );
-
-        
-        
-        $reserva_num = $phone_reserva !== '' ? $phone_reserva : '+55819XXXXXX';
-        DBexecute(
-            'UPDATE media_type_param' .
-            ' SET value = ' . zbx_dbstr($reserva_num) .
-            ' WHERE mediatypeid IN (108, 109)' .
-            " AND name = 'destination_number'"
-        );
+        $month = $this->getInput('month', date('n'));
+        $year = $this->getInput('year', date('Y'));
+        header('Location: zabbix.php?action=plantao.list&usrgrpid=' . $usrgrpid . '&month=' . $month . '&year=' . $year);
+        exit;
     }
 }

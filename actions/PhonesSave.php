@@ -3,8 +3,7 @@
 namespace Modules\Plantao\Actions;
 
 use CController,
-    CControllerResponseRedirect,
-    CUrl;
+    CMessageHelper;
 
 class PhonesSave extends CController {
 
@@ -14,8 +13,9 @@ class PhonesSave extends CController {
 
     protected function checkInput(): bool {
         $fields = [
-            'userid' => 'required|string',
-            'phone'  => 'required|string',
+            'userid'   => 'required|db users.userid',
+            'usrgrpid' => 'required|db usrgrp.usrgrpid',
+            'phone'    => 'string'
         ];
         return $this->validateInput($fields);
     }
@@ -25,37 +25,17 @@ class PhonesSave extends CController {
     }
 
     protected function doAction(): void {
-        $userid = (int) $this->getInput('userid');
-        $phone  = trim($this->getInput('phone'));
+        $userid = $this->getInput('userid');
+        $usrgrpid = $this->getInput('usrgrpid');
+        $phone = $this->getInput('phone', '');
 
-        $redirect = (new CUrl('zabbix.php'))
-            ->setArgument('action', 'phones.list');
+        DBexecute('REPLACE INTO module_plantao_phones (userid, phone) VALUES (' . $userid . ', ' . zbx_dbstr($phone) . ')');
 
-        if (empty($phone)) {
-            
-            DBexecute('DELETE FROM module_plantao_phones WHERE userid = ' . $userid);
-            $redirect->setArgument('success', 'Telefone removido.');
-        } else {
-            
-            $existing = DBfetch(DBselect(
-                'SELECT userid FROM module_plantao_phones WHERE userid = ' . $userid
-            ));
+        // Adiciona a mensagem de sucesso na sessão nativa do Zabbix
+        CMessageHelper::setSuccessTitle('Telefone atualizado com sucesso.');
 
-            if ($existing) {
-                DBexecute(
-                    'UPDATE module_plantao_phones' .
-                    ' SET phone = ' . zbx_dbstr($phone) .
-                    ' WHERE userid = ' . $userid
-                );
-            } else {
-                DBexecute(
-                    'INSERT INTO module_plantao_phones (userid, phone)' .
-                    ' VALUES (' . $userid . ', ' . zbx_dbstr($phone) . ')'
-                );
-            }
-            $redirect->setArgument('success', 'Telefone atualizado.');
-        }
-
-        $this->setResponse(new CControllerResponseRedirect($redirect));
+        // Força o redirecionamento imediato via HTTP
+        header('Location: zabbix.php?action=phones.list&usrgrpid=' . $usrgrpid);
+        exit;
     }
 }

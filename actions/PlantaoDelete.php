@@ -3,8 +3,7 @@
 namespace Modules\Plantao\Actions;
 
 use CController,
-    CControllerResponseRedirect,
-    CUrl;
+    CMessageHelper;
 
 class PlantaoDelete extends CController {
 
@@ -14,9 +13,10 @@ class PlantaoDelete extends CController {
 
     protected function checkInput(): bool {
         $fields = [
-            'scheduleid' => 'required|int32',
-            'month'      => 'int32',
-            'year'       => 'int32',
+            'date'     => 'required|string',
+            'usrgrpid' => 'required|db usrgrp.usrgrpid',
+            'month'    => 'string',
+            'year'     => 'string'
         ];
         return $this->validateInput($fields);
     }
@@ -26,20 +26,17 @@ class PlantaoDelete extends CController {
     }
 
     protected function doAction(): void {
-        $scheduleid = (int) $this->getInput('scheduleid');
-        $month      = (int) $this->getInput('month', date('n'));
-        $year       = (int) $this->getInput('year', date('Y'));
+        $date = $this->getInput('date');
+        $usrgrpid = $this->getInput('usrgrpid');
 
-        DBexecute(
-            'DELETE FROM module_plantao_schedule WHERE scheduleid = ' . $scheduleid
-        );
+        // Remove apenas o dia específico para a equipe ativa
+        DBexecute('DELETE FROM module_plantao_schedule WHERE usrgrpid = ' . $usrgrpid . ' AND schedule_date = ' . zbx_dbstr($date));
 
-        $this->setResponse(new CControllerResponseRedirect(
-            (new CUrl('zabbix.php'))
-                ->setArgument('action', 'plantao.list')
-                ->setArgument('month', $month)
-                ->setArgument('year', $year)
-                ->setArgument('success', 'Plantão removido.')
-        ));
+        CMessageHelper::setSuccessTitle('Plantão do dia removido com sucesso.');
+
+        $month = $this->getInput('month', date('n'));
+        $year = $this->getInput('year', date('Y'));
+        header('Location: zabbix.php?action=plantao.list&usrgrpid=' . $usrgrpid . '&month=' . $month . '&year=' . $year);
+        exit;
     }
 }

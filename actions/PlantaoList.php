@@ -12,11 +12,11 @@ class PlantaoList extends CController {
     }
 
     protected function checkInput(): bool {
+        // Double check: Liberando os campos month e year na segurança do Zabbix
         $fields = [
-            'month'   => 'int32',
-            'year'    => 'int32',
-            'success' => 'string',
-            'error'   => 'string',
+            'usrgrpid' => 'db usrgrp.usrgrpid',
+            'month'    => 'string',
+            'year'     => 'string'
         ];
         return $this->validateInput($fields);
     }
@@ -26,93 +26,66 @@ class PlantaoList extends CController {
     }
 
     protected function doAction(): void {
-        $now   = new \DateTime();
-        $month = (int) $this->getInput('month', $now->format('n'));
-        $year  = (int) $this->getInput('year', $now->format('Y'));
+        // 1. Busca todos os grupos de usuários para o filtro do calendário
+        $groups = [];
+        $db_groups = DBselect('SELECT usrgrpid, name FROM usrgrp ORDER BY name');
+        while ($group = DBfetch($db_groups)) {
+            $groups[] = $group;
+        }
 
-        if ($month < 1)  { $month = 12; $year--; }
-        if ($month > 12) { $month = 1;  $year++; }
+        $selected_group = $this->getInput('usrgrpid', $groups[0]['usrgrpid'] ?? '0');
 
-        $days_in_month = cal_days_in_month(CAL_GREGORIAN, $month, $year);
-        $date_start    = sprintf('%04d-%02d-01', $year, $month);
-        $date_end      = sprintf('%04d-%02d-%02d', $year, $month, $days_in_month);
+        // Captura dinamicamente o mês e ano validados da URL
+        $month = (int)$this->getInput('month', date('n'));
+        $year  = (int)$this->getInput('year', date('Y'));
 
-        $wisedb_filter = ' 1=1 ';
+        // Define a janela de busca exata do mês selecionado
+        $first_day = sprintf('%04d-%02d-01', $year, $month);
+        $last_day  = date('Y-m-t', strtotime($first_day));
 
-	$sql =
-	    'WITH phone_map AS (' .
-	    '    SELECT userid, phone FROM module_plantao_phones' .
-    	    ')' .
-    	    ' SELECT' .
-   	    '   \'sched\' AS row_type,' .
-    	    '   s.schedule_date AS ref_date,' .
-    	    '   s.scheduleid AS ref_id,' .
-    	    '   u.userid AS userid,' .
-     	    '   u.name, u.surname, u.username,' .
-    	    '   COALESCE(pm.phone, \'\') AS phone,' .
-    	    '   COALESCE(s.userid_reserva, \'\') AS userid_reserva,' .
-    	    '   COALESCE(ur.name, \'\') AS reserva_name,' .
-    	    '   COALESCE(ur.surname, \'\') AS reserva_surname,' .
-    	    '   COALESCE(pr.phone, \'\') AS reserva_phone' .
-    	    ' FROM module_plantao_schedule s' .
-    	    ' JOIN users u ON u.userid = s.userid' .
-   	    ' LEFT JOIN phone_map pm ON pm.userid = s.userid' .
-    	    ' LEFT JOIN users ur ON ur.userid = s.userid_reserva' .
-    	    ' LEFT JOIN phone_map pr ON pr.userid = s.userid_reserva' .
-    	    ' WHERE s.schedule_date <= ' . zbx_dbstr($date_end) .
-    	    '   AND (s.schedule_date + INTERVAL 6 DAY) >= ' . zbx_dbstr($date_start) .
-   	    ' UNION ALL' .
-    	    ' SELECT DISTINCT' .
-    	    '   \'user\' AS row_type,' .
-   	    '   \'\' AS ref_date,' .
-    	    '   \'\' AS ref_id,' .
-   	    '   u.userid AS userid,' .
-    	    '   u.name, u.surname, u.username,' .
-    	    '   COALESCE(pm.phone, \'\') AS phone,' .
-    	    '   \'\' AS userid_reserva,' .
-    	    '   \'\' AS reserva_name,' .
-    	    '   \'\' AS reserva_surname,' .
-    	    '   \'\' AS reserva_phone' .
-    	    ' FROM users u' .
-    	    ' LEFT JOIN phone_map pm ON pm.userid = u.userid' .
-    	    ' WHERE ' . $wisedb_filter;
+        $sched_data = [];
+        $team_users = [];
 
-        $week_map = [];
-        $users    = [];
+        if ($selected_group !== '0') {
+            // 2. Busca os plantonistas agendados para o time selecionado no período correto
+            $result = DBselect(
+                'SELECT s.schedule_date, s.role_type, u.userid, u.name, u.surname, u.username, COALESCE(p.phone, \'\') AS phone ' .
+                ' FROM module_plantao_schedule s ' .
+                ' JOIN users u ON u.userid = s.userid ' .
+                ' LEFT JOIN module_plantao_phones p ON p.userid = u.userid ' .
+                ' WHERE s.usrgrpid = ' . $selected_group .
+                '   AND s.schedule_date >= ' . zbx_dbstr($first_day) .
+                '   AND s.schedule_date <= ' . zbx_dbstr($last_day)
+            );
 
-        $result = DBselect($sql);
-        while ($row = DBfetch($result)) {
-            if ($row['row_type'] === 'sched') {
-                $week_map[$row['ref_date']] = [
-                    'week_start'     => $row['ref_date'],
-                    'scheduleid'     => $row['ref_id'],
-                    'userid'         => $row['userid'],
-                    'name'           => $row['name'],
-                    'surname'        => $row['surname'],
-                    'username'       => $row['username'],
-                    'phone'          => $row['phone'],
-                    'userid_reserva' => $row['userid_reserva'],
-                    'reserva_name'   => $row['reserva_name'],
-                    'reserva_surname'=> $row['reserva_surname'],
-                    'reserva_phone'  => $row['reserva_phone'],
-                ];
-            } else {
-                $users[$row['userid']] = $row;
+            while ($row = DBfetch($result)) {
+                $sched_data[$row['schedule_date']][$row['role_type']] = $row;
+            }
+
+            // 3. Busca os usuários que pertencem a este grupo para popular os modais e autocompletes
+            $users_res = DBselect(
+                'SELECT u.userid, u.name, u.surname, u.username, COALESCE(p.phone, \'\') AS phone ' .
+                ' FROM users u ' .
+                ' JOIN users_groups ug ON ug.userid = u.userid ' .
+                ' LEFT JOIN module_plantao_phones p ON p.userid = u.userid ' .
+                ' WHERE ug.usrgrpid = ' . $selected_group .
+                ' ORDER BY u.name, u.surname'
+            );
+            while ($user = DBfetch($users_res)) {
+                $team_users[] = $user;
             }
         }
 
-        uasort($users, fn($a, $b) => strcmp($a['name'] . $a['surname'], $b['name'] . $b['surname']));
-
         $response = new CControllerResponseData([
-            'month'         => $month,
-            'year'          => $year,
-            'days_in_month' => $days_in_month,
-            'week_map'      => $week_map,
-            'users'         => $users,
-            'success'       => $this->getInput('success', ''),
-            'error'         => $this->getInput('error', ''),
+            'groups'         => $groups,
+            'selected_group' => $selected_group,
+            'sched_data'     => $sched_data,
+            'team_users'     => $team_users,
+            'month'          => $month,
+            'year'           => $year
         ]);
-        $response->setTitle('Escala de Plantão');
+
+        $response->setTitle('Escala de Plantão por Equipe');
         $this->setResponse($response);
     }
 }

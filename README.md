@@ -1,139 +1,70 @@
-# Módulo Plantão — Zabbix 7.4
+# Módulo Plantão — Zabbix 7.4 (Versão Multiequipes & Escala Flexível)
 
-Módulo para gerenciar escala de plantão técnico dentro do próprio Zabbix. Desenvolvido para uso com ligações via **[LIGMEE](https://ligmee.com.br)**, plataforma de ligações automatizadas integrada ao Zabbix via media type, mas pode ser adaptado para qualquer media type que use o campo `destination_number`.
+Módulo customizado para gerenciar escalas de plantão técnico diretamente na interface nativa do Zabbix 7.4. Esta versão foi totalmente refatorada para suportar o isolamento de escalas por equipes e permitir flexibilidade total de agendamento (por dia ou por semana fechada).
 
-A ideia é simples: você cadastra os técnicos com telefone, escala quem está de plantão em cada semana (incluindo um reserva), e o módulo atualiza automaticamente o número nos media types quando a semana atual é salva.
+Desenvolvido para integração com plataformas de ligações automatizadas via mídia type (como LIGMEE ou similares), automatizando a atualização do campo destination_number baseado no plantonista ativo.
 
+---
 
-## Requisitos
+## 🚀 Novidades desta Versão
 
-- Zabbix 7.4
-- PostgreSQL
-- Usuário com perfil de admin no Zabbix
+* Filtro por Equipes: Integração com os Grupos de Usuários nativos do Zabbix (usrgrp), permitindo gerenciar calendários e listas de telefones de forma 100% isolada por time.
+* Escala Flexível por Dia: Suporte a alterações cirúrgicas na escala. Agora é possível adicionar, alterar ou remover o plantonista de um dia específico (útil para trocas de última hora).
+* Escala em Massa por Semana: Botão dedicado para replicar a dupla de técnicos (Principal + Reserva) de segunda a domingo com apenas um clique.
+* Remoção Individual: Botão de exclusão [x] mapeado dentro de cada quadrante diário do calendário.
 
+---
 
-## Instalação
+## 📋 Requisitos
 
-**1. Copiar o módulo**
+* Zabbix: Versão 7.4.x (Frontend PHP)
+* Banco de Dados: MySQL 8.0+ ou MariaDB 10.x+
+* PHP: Versão 8.2 ou superior (compatível com o Zabbix 7.4)
+* Permissões: Usuário com perfil de Admin ou Super Admin no Zabbix para gerenciar as escalas.
 
-```bash
-cp -r plantao /usr/share/zabbix/ui/modules/
-```
+---
 
-**2. Ativar no Zabbix**
+## 🛠️ Estrutura de Banco de Dados (MySQL)
 
-Acesse **Administration → General → Modules**, clique em **Scan directory** e ative o módulo Plantão.
+O módulo utiliza duas tabelas customizadas no banco de dados do Zabbix. Caso esteja implantando do zero, certifique-se de criá-las no MySQL:
 
-Na primeira ativação as tabelas são criadas automaticamente. Se preferir criar manualmente:
-
-```sql
-CREATE TABLE module_plantao_phones (
+Tabela 1: module_plantao_phones
+CREATE TABLE IF NOT EXISTS module_plantao_phones (
     userid BIGINT NOT NULL,
-    phone  VARCHAR(100) NOT NULL DEFAULT '',
+    phone VARCHAR(32) NOT NULL DEFAULT '',
     PRIMARY KEY (userid)
 );
 
-CREATE TABLE module_plantao_schedule (
-    scheduleid     BIGSERIAL NOT NULL,
-    userid         BIGINT NOT NULL,
-    userid_reserva BIGINT NULL,
-    schedule_date  DATE NOT NULL,
-    created_by     BIGINT NOT NULL DEFAULT 0,
-    created_at     INTEGER NOT NULL DEFAULT 0,
+Tabela 2: module_plantao_schedule
+CREATE TABLE IF NOT EXISTS module_plantao_schedule (
+    scheduleid BIGINT NOT NULL AUTO_INCREMENT,
+    usrgrpid BIGINT NOT NULL,
+    userid BIGINT NOT NULL,
+    role_type VARCHAR(20) NOT NULL,
+    schedule_date DATE NOT NULL,
+    created_by BIGINT NOT NULL DEFAULT 0,
+    created_at INT NOT NULL DEFAULT 0,
     PRIMARY KEY (scheduleid),
-    UNIQUE (schedule_date)
+    UNIQUE KEY unique_plantao (usrgrpid, schedule_date, role_type)
 );
-```
 
+---
 
-## Adaptações necessárias
+## 📦 Instalação do Módulo
 
-### 1. IDs dos media types
+1. Copie a pasta do módulo para o diretório de módulos do frontend do seu Zabbix:
+   /usr/share/zabbix/ui/modules/plantao/
+2. Acesse a interface web do Zabbix como Super Admin.
+3. Vá em Administration -> General -> Modules.
+4. Clique em Scan directory.
+5. Localize o módulo Plantão na lista e clique em Enable.
+6. O menu "Plantão" aparecerá instantaneamente na barra lateral esquerda.
 
-Os IDs estão hardcoded e precisam ser trocados pelos do seu ambiente. Edite `actions/PlantaoSave.php` e `actions/PlantaoApply.php`:
+---
 
-```php
-// Técnico principal — troque 102, 105 pelos seus IDs
-' WHERE mediatypeid IN (102, 105)'
+## 📝 Como Utilizar
 
-// Técnico reserva — troque 108, 109 pelos seus IDs
-' WHERE mediatypeid IN (108, 109)'
-```
-
-Para consultar os IDs no seu banco:
-
-```sql
-SELECT mediatypeid, name FROM media_type WHERE name LIKE '%ligação%';
-```
-
-### 2. Filtro de grupo de usuários
-
-Por padrão só aparecem usuários de um grupo específico. Para mudar, edite `actions/PlantaoList.php`:
-
-```php
-// troque '%SUAEMPRESA%' pelo nome do grupo no seu ambiente
-AND g.name LIKE '%SUAEMPRESA%'
-```
-
-Para mostrar todos os usuários, remova o filtro e deixe só `FROM users u`.
-
-### 3. Número genérico para técnico reserva
-
-Quando nenhum reserva é escalado, esse número é gravado nos media types de reserva. Troque pelo fallback do seu ambiente em `PlantaoSave.php` e `PlantaoApply.php`:
-
-```php
-$reserva_num = '+55819XXXXXX';
-```
-
-
-## Como o técnico reserva é acionado
-
-O acionamento do reserva acontece via escalonamento no Trigger Actions do Zabbix. O técnico principal recebe a ligação primeiro e, se o evento continuar sem ser reconhecido, o reserva é acionado em seguida.
-
-Exemplo de configuração com 3 operações:
-
-**Step 1** — Imediatamente aciona o técnico principal via media type de ligação principal.
-**Step 2** — Após 10 minutos sem reconhecimento, aciona o técnico reserva via media type de ligação reserva.
-**Step 7** — Após 1 hora, reaciona o técnico principal.
-
-<p align="center">
-  <img src=".github/action-operations.png" width="700">
-</p>
-
-O step 2 usa o media type de ligação reserva com a condição "Event is not acknowledged", garantindo que só aciona se o alerta ainda não foi tratado.
-
-<p align="center">
-  <img src=".github/action-reserva-step.png" width="500">
-</p>
-
-O módulo mantém o `destination_number` atualizado nesses media types automaticamente conforme a escala da semana.
-
-## Como usar
-
-1. Acesse **Plantão → Telefones** e cadastre o telefone de cada técnico
-2. Acesse **Plantão → Escala**, clique em uma semana no calendário ou preencha o formulário manualmente
-3. Selecione o técnico e, se quiser, o reserva
-4. Salve — se for a semana atual, os media types já são atualizados na hora
-
-
-
-## Estrutura
-
-```
-escala-de-plantao/
-├── manifest.json
-├── Module.php
-├── actions/
-│   ├── PlantaoList.php
-│   ├── PlantaoSave.php        <- editar IDs dos media types
-│   ├── PlantaoApply.php       <- editar IDs dos media types
-│   ├── PlantaoDelete.php
-│   ├── PhonesList.php
-│   └── PhonesSave.php
-├── views/
-│   ├── plantao.list.php
-│   └── phones.list.php
-└── assets/
-    └── css/
-        └── icon.css
-```
+1. Cadastrar Telefones: Acesse o menu Plantão -> Telefones, selecione o seu time no filtro superior e insira os números de telefone correspondentes a cada técnico do grupo.
+2. Planejar Escala: Acesse Plantão -> Escala, selecione o seu time. Clique no dia desejado no calendário, escolha o Técnico Principal e o Reserva no painel inferior.
+3. Salvar: Escolha entre aplicar a escala apenas para o dia selecionado (Salvar Apenas Este Dia) ou expandi-la para a semana inteira (Salvar Semana Inteira).
+4. Remover: Para limpar o plantão de um dia específico, basta clicar no botão [x] vermelho localizado no canto superior direito do dia correspondente no calendário.

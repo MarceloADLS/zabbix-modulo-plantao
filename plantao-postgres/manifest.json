@@ -1,0 +1,29 @@
+{
+    "manifest_version": 2.0,
+    "id": "plantao",
+    "name": "Módulo de Plantão (PostgreSQL)",
+    "version": "2.0.0",
+    "author": "Pedro Santiago - GRT",
+    "url": "https://www.linkedin.com/in/pedro-santiago-9491b9221/",
+    "description": "Gerenciamento de escala de plantão por equipe e telefones de contato, rodando nativamente sobre PostgreSQL. Fonte única da verdade visual para a monitoração.",
+    "namespace": "Plantao",
+    "actions": {
+        "plantao.list": {
+            "class": "PlantaoList",
+            "view": "plantao.list"
+        },
+        "plantao.save": {
+            "class": "PlantaoSave"
+        },
+        "plantao.delete": {
+            "class": "PlantaoDelete"
+        },
+        "phones.list": {
+            "class": "PhonesList",
+            "view": "phones.list"
+        },
+        "phones.save": {
+            "class": "PhonesSave"
+        }
+    }
+}

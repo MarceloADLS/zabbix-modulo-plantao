@@ -1,6 +1,6 @@
 # Módulo de Plantão (PostgreSQL) — Zabbix 7.4
 
-M�dulo customizado para o frontend do Zabbix 7.4 que serve como fonte única da verdade visual para a monitoração: o time de monitoração usa este módulo para consultar o calendário de plantão, adicionar, alterar ou remover os plantonistas (Principal e Reserva) de cada dia do mês, e gerenciar os telefones de contato de cada técnico.
+M�dulo customizado para o frontend do Zabbix 7.4 que serve como fonte única da verdade visual para a monitoração: o time de monitoração usa este módulo para consultar o calendário de plantão, adicionar, alterar ou remover os plantonistas (Principal e Reserva) de cada dia do mês, e gerenciar os telefones de contato de cada técnico.
 
 O módulo é isolado por equipe através dos Grupos de Usuários nativos do Zabbix (`usrgrp`), e roda nativamente sobre **PostgreSQL** — sem dependências de automações externas ou integrações de discagem.
 

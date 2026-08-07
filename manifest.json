@@ -3,8 +3,8 @@
     "id": "plantao",
     "name": "Módulo de Plantão (PostgreSQL)",
     "version": "2.0.0",
-    "author": "Pedro Santiago - GRT",
-    "url": "https://www.linkedin.com/in/pedro-santiago-9491b9221/",
+    "author": "Marcelo Augusto",
+    "url": "https://marceloadls.github.io/my_portfolio/",
     "description": "Gerenciamento de escala de plantão por equipe e telefones de contato, rodando nativamente sobre PostgreSQL. Fonte única da verdade visual para a monitoração.",
     "namespace": "Plantao",
     "actions": {
